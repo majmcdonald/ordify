@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Spotify Auth Test</title>
+</head>
+<body>
+    <h1>Spotify Authentication Test</h1>
+    <button onclick="testAuth()">Test Spotify Auth</button>
+    <div id="result"></div>
+
+    <script>
+        // Instructions: Replace 'your-client-id-here' with your actual Spotify Client ID
+        const CLIENT_ID = 'b421f7cca3fa43319ac361ebd4e63e75'; 
+        const REDIRECT_URI = 'http://127.0.0.1:8000/callback.html';
+        const SCOPES = ['playlist-read-private', 'playlist-read-collaborative'];
+
+        // Generate PKCE code verifier
+        function generateCodeVerifier() {
+            const array = new Uint8Array(32);
+            crypto.getRandomValues(array);
+            return btoa(Array.from(array, byte => String.fromCharCode(byte)).join(''))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+        }
+
+        // Generate PKCE code challenge
+        async function generateCodeChallenge(verifier) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(verifier);
+            const digest = await crypto.subtle.digest('SHA-256', data);
+            return btoa(Array.from(new Uint8Array(digest), byte => String.fromCharCode(byte)).join(''))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=/g, '');
+        }
+
+        async function testAuth() {
+            const codeVerifier = generateCodeVerifier();
+            const codeChallenge = await generateCodeChallenge(codeVerifier);
+            
+            // Store code verifier for later use
+            sessionStorage.setItem('code_verifier', codeVerifier);
+            
+            const authUrl = `https://accounts.spotify.com/authorize?client_id=${CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES.join(' '))}&code_challenge=${codeChallenge}&code_challenge_method=S256&show_dialog=true`;
+            console.log('Auth URL:', authUrl);
+            window.location.href = authUrl;
+        }
+
+        async function exchangeCodeForToken(code) {
+            try {
+                document.getElementById('result').innerHTML = '<h2>Exchanging code for token...</h2>';
+                
+                const response = await fetch('https://accounts.spotify.com/api/token', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                    },
+                    body: new URLSearchParams({
+                        grant_type: 'authorization_code',
+                        code: code,
+                        redirect_uri: REDIRECT_URI,
+                        client_id: CLIENT_ID,
+                    }),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    document.getElementById('result').innerHTML = `
+                        <h2>Success! 🎉</h2>
+                        <p><strong>Access Token:</strong> ${data.access_token ? 'Present' : 'Missing'}</p>
+                        <p><strong>Token Type:</strong> ${data.token_type}</p>
+                        <p><strong>Expires In:</strong> ${data.expires_in} seconds</p>
+                        <p><strong>Refresh Token:</strong> ${data.refresh_token ? 'Present' : 'Missing'}</p>
+                        <p><strong>Scope:</strong> ${data.scope}</p>
+                    `;
+                } else {
+                    const errorData = await response.json();
+                    document.getElementById('result').innerHTML = `
+                        <h2>Token Exchange Failed</h2>
+                        <p><strong>Status:</strong> ${response.status}</p>
+                        <p><strong>Error:</strong> ${errorData.error}</p>
+                        <p><strong>Description:</strong> ${errorData.error_description || 'No description'}</p>
+                    `;
+                }
+            } catch (error) {
+                document.getElementById('result').innerHTML = `
+                    <h2>Token Exchange Error</h2>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                `;
+            }
+        }
+
+        // Check for callback
+        if (window.location.search) {
+            const params = new URLSearchParams(window.location.search);
+            const code = params.get('code');
+            const error = params.get('error');
+            
+            if (code) {
+                // Exchange code for token
+                exchangeCodeForToken(code);
+            } else {
+                document.getElementById('result').innerHTML = `
+                    <h2>Callback Result:</h2>
+                    <p>Search: ${window.location.search}</p>
+                    <p>Authorization Code: ${code ? 'Present' : 'Missing'}</p>
+                    <p>Error: ${error || 'None'}</p>
+                    <p>Full URL: ${window.location.href}</p>
+                    <p>All Params: ${Array.from(params.entries()).map(([k,v]) => `${k}=${v}`).join(', ')}</p>
+                `;
+            }
+        } else if (window.location.hash) {
+            const hash = window.location.hash.substring(1);
+            const params = new URLSearchParams(hash);
+            const accessToken = params.get('access_token');
+            const error = params.get('error');
+            
+            document.getElementById('result').innerHTML = `
+                <h2>Callback Result (Hash):</h2>
+                <p>Hash: ${window.location.hash}</p>
+                <p>Access Token: ${accessToken ? 'Present' : 'Missing'}</p>
+                <p>Error: ${error || 'None'}</p>
+                <p>Full URL: ${window.location.href}</p>
+            `;
+        }
+    </script>
+</body>
+</html>
